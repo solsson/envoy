@@ -398,6 +398,7 @@ FilterConfig::FilterConfig(
     Server::Configuration::CommonFactoryContext& context,
     std::shared_ptr<SecretReader> secret_reader, Stats::Scope& scope,
     const std::string& stats_prefix)
+    : oauth_failure_stat_name_("oauth_failure", scope.symbolTable())
     : oauth_token_endpoint_(proto_config.token_endpoint()),
       authorization_endpoint_(proto_config.authorization_endpoint()),
       authorization_query_params_(buildAutorizationQueryParams(proto_config)),
@@ -1156,7 +1157,7 @@ void OAuth2Filter::addResponseCookies(Http::ResponseHeaderMap& headers,
 }
 
 void OAuth2Filter::sendUnauthorizedResponse(const std::string& details) {
-  config_->stats().oauth_failure_.inc();
+  config_->incOauthFailure(details);
   decoder_callbacks_->sendLocalReply(Http::Code::Unauthorized, UnauthorizedBodyMessage, nullptr,
                                      absl::nullopt, details);
 }
@@ -1164,6 +1165,13 @@ void OAuth2Filter::sendUnauthorizedResponse(const std::string& details) {
 // Overload for backward compatibility (default reason)
 void OAuth2Filter::sendUnauthorizedResponse() {
   sendUnauthorizedResponse("oauth.unauthorized");
+}
+
+void FilterConfig::incOauthFailure(const std::string& reason) const {
+  // Use the reason as a tag for the labeled counter
+  Stats::StatNameManagedStorage reason_stat_name(reason, stats_.oauth_unauthorized_rq_.statName().symbolTable());
+  Stats::StatNameTagVector tags = {{Stats::StatNameManagedStorage("reason", stats_.oauth_unauthorized_rq_.statName().symbolTable()).statName(), reason_stat_name.statName()}};
+  stats_.oauth_unauthorized_rq_.symbolTable().scope().counterFromStatNameWithTags(oauth_failure_stat_name_.statName(), tags).inc();
 }
 
 // Validates the OAuth callback request.

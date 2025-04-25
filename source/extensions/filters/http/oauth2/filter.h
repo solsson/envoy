@@ -69,7 +69,7 @@ private:
  */
 #define ALL_OAUTH_FILTER_STATS(COUNTER)                                                            \
   COUNTER(oauth_unauthorized_rq)                                                                   \
-  COUNTER(oauth_failure)                                                                           \
+  /* Removed COUNTER(oauth_failure) in favor of labeled counter. */
   COUNTER(oauth_passthrough)                                                                       \
   COUNTER(oauth_success)                                                                           \
   COUNTER(oauth_refreshtoken_success)                                                              \
@@ -80,6 +80,22 @@ private:
  */
 struct FilterStats {
   ALL_OAUTH_FILTER_STATS(GENERATE_COUNTER_STRUCT)
+  // No plain oauth_failure counter; use labeled counter instead.
+};
+
+class FilterConfig {
+ public:
+  // ... (existing public members)
+
+  // Helper to increment labeled oauth_failure counter
+  void incOauthFailure(const std::string& reason) const;
+
+  // Accessor for oauth_failure base stat name
+  const Stats::StatName& oauthFailureStatName() const { return oauth_failure_stat_name_.statName(); }
+
+ private:
+  // ... (existing private members)
+  Stats::StatNameManagedStorage oauth_failure_stat_name_;
 };
 
 /**
