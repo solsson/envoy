@@ -11,6 +11,7 @@ on:
     branches:
     - main
     - release/v*
+    - response-code-details-for-401-cases
   schedule:
   - cron: '30 6 * * *'
 
