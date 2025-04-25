@@ -323,6 +323,7 @@ public:
 
   // a catch-all function used for request failures. we don't retry, as a user can simply refresh
   // the page in the case of a network blip.
+  void sendUnauthorizedResponse(const std::string& details) override;
   void sendUnauthorizedResponse() override;
 
   void finishGetAccessTokenFlow();
@@ -371,7 +372,8 @@ private:
   void addResponseCookies(Http::ResponseHeaderMap& headers, const std::string& encoded_token) const;
   const std::string& bearerPrefix() const;
   CallbackValidationResult validateOAuthCallback(const Http::RequestHeaderMap& headers,
-                                                 const absl::string_view path_str);
+                                                 const absl::string_view path_str,
+                                                 std::string* details = nullptr);
   bool validateCsrfToken(const Http::RequestHeaderMap& headers,
                          const std::string& csrf_token) const;
 };

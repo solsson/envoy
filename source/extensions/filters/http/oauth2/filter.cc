@@ -602,9 +602,10 @@ Http::FilterHeadersStatus OAuth2Filter::decodeHeaders(Http::RequestHeaderMap& he
       // in the query string of the callback path according to the OAuth2 spec.
       // More information can be found here:
       // https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
-      const CallbackValidationResult result = validateOAuthCallback(headers, path_str);
+      std::string callback_details;
+      const CallbackValidationResult result = validateOAuthCallback(headers, path_str, &callback_details);
       if (!result.is_valid_) {
-        sendUnauthorizedResponse();
+        sendUnauthorizedResponse(callback_details.empty() ? "oauth.unauthorized" : callback_details);
         return Http::FilterHeadersStatus::StopIteration;
       }
 
@@ -1154,10 +1155,15 @@ void OAuth2Filter::addResponseCookies(Http::ResponseHeaderMap& headers,
   }
 }
 
-void OAuth2Filter::sendUnauthorizedResponse() {
+void OAuth2Filter::sendUnauthorizedResponse(const std::string& details) {
   config_->stats().oauth_failure_.inc();
   decoder_callbacks_->sendLocalReply(Http::Code::Unauthorized, UnauthorizedBodyMessage, nullptr,
-                                     absl::nullopt, EMPTY_STRING);
+                                     absl::nullopt, details);
+}
+
+// Overload for backward compatibility (default reason)
+void OAuth2Filter::sendUnauthorizedResponse() {
+  sendUnauthorizedResponse("oauth.unauthorized");
 }
 
 // Validates the OAuth callback request.
@@ -1166,11 +1172,13 @@ void OAuth2Filter::sendUnauthorizedResponse() {
 // * Does the state contain the original request URL and the CSRF token?
 // * Does the CSRF token in the state match the one in the cookie?
 CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::RequestHeaderMap& headers,
-                                                             const absl::string_view path_str) {
+                                                             const absl::string_view path_str,
+                                                             std::string* details) {
   // Return 401 unauthorized if the query parameters contain an error response.
   const auto query_parameters = Http::Utility::QueryParamsMulti::parseQueryString(path_str);
   if (query_parameters.getFirstValue(queryParamsError).has_value()) {
     ENVOY_LOG(debug, "OAuth server returned an error: \n{}", query_parameters.data());
+    if (details) *details = "oauth.error_response";
     return {false, "", ""};
   }
 
@@ -1179,6 +1187,7 @@ CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::Request
   auto stateVal = query_parameters.getFirstValue(queryParamsState);
   if (!codeVal.has_value() || !stateVal.has_value()) {
     ENVOY_LOG(error, "code or state query param does not exist: \n{}", query_parameters.data());
+    if (details) *details = "oauth.missing_code_or_state";
     return {false, "", ""};
   }
 
@@ -1192,6 +1201,7 @@ CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::Request
   auto status = MessageUtil::loadFromJsonNoThrow(state, message, has_unknown_field);
   if (!status.ok()) {
     ENVOY_LOG(error, "state query param is not a valid JSON: \n{}", state);
+    if (details) *details = "oauth.invalid_state_json";
     return {false, "", ""};
   }
 
@@ -1199,6 +1209,7 @@ CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::Request
   if (!filed_value_pair.contains(stateParamsUrl) ||
       !filed_value_pair.contains(stateParamsCsrfToken)) {
     ENVOY_LOG(error, "state query param does not contain url or CSRF token: \n{}", state);
+    if (details) *details = "oauth.missing_url_or_csrf";
     return {false, "", ""};
   }
 
@@ -1211,6 +1222,7 @@ CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::Request
   std::string csrf_token = filed_value_pair.at(stateParamsCsrfToken).string_value();
   if (!validateCsrfToken(headers, csrf_token)) {
     ENVOY_LOG(error, "csrf token validation failed");
+    if (details) *details = "oauth.invalid_csrf";
     return {false, "", ""};
   }
   const std::string original_request_url = filed_value_pair.at(stateParamsUrl).string_value();
@@ -1219,6 +1231,7 @@ CallbackValidationResult OAuth2Filter::validateOAuthCallback(const Http::Request
   Http::Utility::Url url;
   if (!url.initialize(original_request_url, false)) {
     ENVOY_LOG(error, "state url {} can not be initialized", original_request_url);
+    if (details) *details = "oauth.invalid_url";
     return {false, "", ""};
   }
 
