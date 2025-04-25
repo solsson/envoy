@@ -69,7 +69,6 @@ private:
  */
 #define ALL_OAUTH_FILTER_STATS(COUNTER)                                                            \
   COUNTER(oauth_unauthorized_rq)                                                                   \
-  /* Removed COUNTER(oauth_failure) in favor of labeled counter. */
   COUNTER(oauth_passthrough)                                                                       \
   COUNTER(oauth_success)                                                                           \
   COUNTER(oauth_refreshtoken_success)                                                              \
